@@ -1,5 +1,5 @@
-# University of Notre Dame  
-Modeling for Temperature Forecasting and Prediction Markets  
+# Modeling for Temperature Forecasting and Prediction Markets 
+ University of Notre Dame
 
 This project explores the relationship between weather-based prediction markets and actual temperature outcomes. Our team applied time series forecasting techniques to predict daily high temperatures in New York City and assess whether Polymarket’s market-implied probabilities align with real-world data. The project was completed as part of the MSBA Time Series Forecasting course at the University of Notre Dame.
 
@@ -75,6 +75,10 @@ _Assumes $100 simulated bet placed per model prediction, purchased at best avail
 ## Conclusion
 
 This project demonstrates that even relatively simple models can provide value in forecasting and market prediction. By combining time series forecasting with economic insight, informed participants may be able to spot inefficiencies in emerging blockchain-based markets like Polymarket.
+
+## Report
+
+📄 [Click here to view the full report (PDF)](forecasting-polymarket-temp-report.pdf)
 
 ## Acknowledgments
 
