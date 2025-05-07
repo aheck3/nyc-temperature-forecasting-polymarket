@@ -1,0 +1,2 @@
+# nyc-temperature-forecasting-polymarket
+Applied time series forecasting techniques including Naïve, Seasonal Naïve, Linear Regression, ARIMA, and Neural Network models to predict daily high temperatures in New York City. This project investigates whether Polymarket’s implied probabilities in temperature-based prediction markets align with actual outcomes, exploring the potential for informed traders to identify and act on pricing inefficiencies.
