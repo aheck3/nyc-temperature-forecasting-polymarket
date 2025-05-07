@@ -1,0 +1,353 @@
+---
+title: "nyc-temperature-forecasting-analysis"
+author: "Alex Heck, Tim McDonald, Cooper Foster"
+date: "2025-02-27"
+output: html_document
+---
+
+Reading in the data and setting up the initial ts object:
+
+```{r}
+library(dplyr)
+library(forecast)
+library(ggplot2)
+
+data <- read.csv('data/updated_set.csv')
+
+data$date <- as.Date(data$date)
+
+#Leap days removed
+
+d1 <- data %>%
+  filter(date != "2020-02-29" & date != "2024-02-29")
+
+high.ts <- ts(d1$high, start = c(2020, 1), end = c(2025, 53), frequency = 365)
+  
+
+```
+
+For all models below, we will validate by forecasting one day at a time, and then adding the previous day's observed value to the training set as we forecast the next day, and so on. This is designed the replicate the process of actually deploying this model: forecasting just one day ahead, and including today's data for tomorrow's forecast.
+
+# S-Naive Forecast
+
+```{r}
+forecast_dates <- seq(as.Date("2025-01-22"), as.Date("2025-02-21"), by = "day")
+
+# Vectors to store forecasts and actual observed values
+forecasts <- numeric(length(forecast_dates))
+actuals   <- numeric(length(forecast_dates))
+
+# Loop over each forecast date
+for (i in seq_along(forecast_dates)) {
+  current_date <- forecast_dates[i]
+  
+  # Training data: all observations up to the day before the forecast date
+  train_end_date <- current_date - 1
+  
+  # Convert the training end date to ts time format (decimal year)
+  year_val <- as.numeric(format(train_end_date, "%Y"))
+  day_of_year <- as.POSIXlt(train_end_date)$yday + 1
+  ts_end <- year_val + (day_of_year - 1) / 365
+  
+  # Subset the time series using window()
+  train_ts <- window(high.ts, end = ts_end)
+  
+  # Fit a seasonal naive model and generate a 1-day ahead forecast
+  forecast_result <- snaive(train_ts, h = 1)
+  forecasts[i] <- as.numeric(forecast_result$mean)
+  
+  # Convert the forecast date into ts time format to extract the actual value
+  forecast_year <- as.numeric(format(current_date, "%Y"))
+  forecast_day <- as.POSIXlt(current_date)$yday + 1
+  ts_forecast_time <- forecast_year + (forecast_day - 1) / 365
+  
+  # Extract the actual observed value from high.ts for the forecast date
+  actual_value <- window(high.ts, start = ts_forecast_time, end = ts_forecast_time)
+  actuals[i] <- as.numeric(actual_value)
+}
+
+# Combine forecasts and actuals into a data frame for comparison
+snaive.res <- data.frame(date = forecast_dates,
+                      forecast = forecasts,
+                      actual = actuals)
+
+accuracy(snaive.res$forecast, snaive.res$actual)
+
+
+```
+
+# Linear Regression Model
+
+```{r}
+
+forecasts <- numeric(length(forecast_dates))
+actuals   <- numeric(length(forecast_dates))
+
+for (i in seq_along(forecast_dates)) {
+  current_date <- forecast_dates[i]
+  
+  train_end_date <- current_date - 1
+  
+  year_val <- as.numeric(format(train_end_date, "%Y"))
+  day_of_year <- as.POSIXlt(train_end_date)$yday + 1
+  ts_end <- year_val + (day_of_year - 1) / 365
+  
+  train_ts <- window(high.ts, end = ts_end)
+  
+  model_fit <- tslm(train_ts ~ season)
+
+  forecast_result <- forecast(model_fit, h = 1)
+  forecasts[i] <- as.numeric(forecast_result$mean)
+
+  forecast_year <- as.numeric(format(current_date, "%Y"))
+  forecast_day <- as.POSIXlt(current_date)$yday + 1
+  ts_forecast_time <- forecast_year + (forecast_day - 1) / 365
+
+  actual_value <- window(high.ts, start = ts_forecast_time, end = ts_forecast_time)
+  actuals[i] <- as.numeric(actual_value)
+}
+
+lm.res <- data.frame(date = forecast_dates,
+                      forecast = forecasts,
+                      actual = actuals)
+
+accuracy(lm.res$forecast, lm.res$actual)
+
+
+
+```
+
+# ARIMA Tuning
+
+To select ideal parameters for ARIMA model, we ran through several validation periods in 2023 and 2024 using the loop below.
+
+```{r}
+n_obs <- length(high.ts)
+dates <- as.Date("2020-01-01") + 0:(n_obs - 1)
+
+errors.df <- data.frame(Date = as.Date(character()),
+                        ME = numeric(),
+                        RMSE = numeric(),
+                        MAE = numeric(),
+                        MPE = numeric(),
+                        MAPE = numeric(),
+                        stringsAsFactors = FALSE)
+
+nValid <- 2
+
+for (i in seq_along(dates)) {
+  current_date <- dates[i]
+  current_year <- as.numeric(format(current_date, "%Y"))
+  
+  if (current_year %in% c(2023, 2024)) {
+    if (i + nValid - 1 <= n_obs) {
+      
+      train.ts <- high.ts[dates < current_date]
+
+      valid.ts <- high.ts[dates %in% dates[i:(i + nValid - 1)]]
+
+      if (length(train.ts) > 0) {
+        model <- auto.arima(train.ts, seasonal = TRUE)
+
+        fc <- forecast(model, h = nValid)
+
+        acc <- accuracy(fc, valid.ts)
+        me   <- acc["Test set", "ME"]
+        rmse <- acc["Test set", "RMSE"]
+        mae  <- acc["Test set", "MAE"]
+        mpe  <- acc["Test set", "MPE"]
+        mape <- acc["Test set", "MAPE"]
+
+        errors.df <- rbind(errors.df,
+                           data.frame(Date = current_date,
+                                      ME = me,
+                                      RMSE = rmse,
+                                      MAE = mae,
+                                      MPE = mpe,
+                                      MAPE = mape))
+      }
+    }
+  }
+}
+
+autoplot(fc)
+```
+
+# ARIMA Model
+
+```{r}
+forecasts <- numeric(length(forecast_dates))
+actuals   <- numeric(length(forecast_dates))
+
+for (i in seq_along(forecast_dates)) {
+  current_date <- forecast_dates[i]
+
+  train_end_date <- current_date - 1
+
+  year_val <- as.numeric(format(train_end_date, "%Y"))
+  day_of_year <- as.POSIXlt(train_end_date)$yday + 1
+  ts_end <- year_val + (day_of_year - 1) / 365
+
+  train_ts <- window(high.ts, end = ts_end)
+
+  model_fit <- Arima(train_ts, order = c(5, 0, 0))
+
+  forecast_result <- forecast(model_fit, h = 1)
+  forecasts[i] <- as.numeric(forecast_result$mean)
+
+  forecast_year <- as.numeric(format(current_date, "%Y"))
+  forecast_day <- as.POSIXlt(current_date)$yday + 1
+  ts_forecast_time <- forecast_year + (forecast_day - 1) / 365
+
+  actual_value <- window(high.ts, start = ts_forecast_time, end = ts_forecast_time)
+  actuals[i] <- as.numeric(actual_value)
+}
+
+arima.res <- data.frame(date = forecast_dates,
+                      forecast = forecasts,
+                      actual = actuals)
+
+accuracy(arima.res$forecast, arima.res$actual)
+
+
+```
+
+# NeuralNet Tuning
+
+Similar to the ARIMA model, we tuned by using multiple validation periods to collect the best parameters. However, due to the `nnetar()` function being more computationally intensive than `arima()`, we ran far fewer validations. The chunk below has been purposefully disabled as it takes a long time to run through the parameter ranges.
+
+```{r, eval=FALSE}
+p_vals <- 5:15
+P_vals <- 0:2
+size_vals <- c(5, 7, 9)
+
+best_mape <- Inf
+best_params <- list()
+
+nValid <- 2
+
+all_rolling_indices <- which(format(dates, "%Y") %in% c("2023", "2024"))
+all_rolling_indices <- all_rolling_indices[all_rolling_indices + nValid - 1 <= length(high.ts)]
+
+if (length(all_rolling_indices) > 7) {
+  rolling_indices <- all_rolling_indices[round(seq(1, length(all_rolling_indices), length.out = 7))]
+} else {
+  rolling_indices <- all_rolling_indices
+}
+
+for (p_candidate in p_vals) {
+  for (P_candidate in P_vals) {
+    for (size_candidate in size_vals) {
+
+      mape_vec <- c()
+
+      for (i in rolling_indices) {
+        current_date <- dates[i]
+        
+        train_ts_cv <- high.ts[dates < current_date]
+        valid_ts_cv <- high.ts[dates %in% dates[i:(i + nValid - 1)]]
+
+        if (length(train_ts_cv) > 0) {
+          model_candidate <- nnetar(train_ts_cv, repeats = 20, p = p_candidate, P = P_candidate, size = size_candidate)
+          fc_candidate <- forecast(model_candidate, h = nValid)
+
+          acc <- accuracy(fc_candidate, valid_ts_cv)
+          current_mape <- acc["Test set", "MAPE"]
+
+          mape_vec <- c(mape_vec, current_mape)
+        }
+      }
+
+      if (length(mape_vec) > 0) {
+        avg_mape <- mean(mape_vec, na.rm = TRUE)
+
+        if (avg_mape < best_mape) {
+          best_mape <- avg_mape
+          best_params <- list(p = p_candidate, P = P_candidate, size = size_candidate)
+        }
+      }
+      
+    }
+  } 
+} 
+
+print(best_params)
+
+
+```
+
+# NeuralNet Model
+
+```{r}
+forecasts <- numeric(length(forecast_dates))
+actuals   <- numeric(length(forecast_dates))
+
+for (i in seq_along(forecast_dates)) {
+  current_date <- forecast_dates[i]
+
+  train_end_date <- current_date - 1
+
+  year_val <- as.numeric(format(train_end_date, "%Y"))
+  day_of_year <- as.POSIXlt(train_end_date)$yday + 1
+  ts_end <- year_val + (day_of_year - 1) / 365
+
+  train_ts <- window(high.ts, end = ts_end)
+
+  model_fit <- nnetar(train_ts, p = 14, P = 2, size = 5, repeats = 20)
+
+  forecast_result <- forecast(model_fit, h = 1)
+  forecasts[i] <- as.numeric(forecast_result$mean)
+
+  forecast_year <- as.numeric(format(current_date, "%Y"))
+  forecast_day <- as.POSIXlt(current_date)$yday + 1
+  ts_forecast_time <- forecast_year + (forecast_day - 1) / 365
+
+  actual_value <- window(high.ts, start = ts_forecast_time, end = ts_forecast_time)
+  actuals[i] <- as.numeric(actual_value)
+}
+
+nn.res <- data.frame(date = forecast_dates,
+                      forecast = forecasts,
+                      actual = actuals)
+
+accuracy(nn.res$forecast, nn.res$actual)
+```
+
+# Naive Forecast
+
+```{r}
+forecast_dates <- seq(as.Date("2025-01-22"), as.Date("2025-02-21"), by = "day")
+
+forecasts <- numeric(length(forecast_dates))
+actuals   <- numeric(length(forecast_dates))
+
+for (i in seq_along(forecast_dates)) {
+  current_date <- forecast_dates[i]
+
+  train_end_date <- current_date - 1
+
+  year_val <- as.numeric(format(train_end_date, "%Y"))
+  day_of_year <- as.POSIXlt(train_end_date)$yday + 1
+  ts_end <- year_val + (day_of_year - 1) / 365
+
+  train_ts <- window(high.ts, end = ts_end)
+
+  naive_fit <- naive(train_ts, h = 1)
+  forecasts[i] <- as.numeric(naive_fit$mean)
+
+  forecast_year <- as.numeric(format(current_date, "%Y"))
+  forecast_day <- as.POSIXlt(current_date)$yday + 1
+  ts_forecast_time <- forecast_year + (forecast_day - 1) / 365
+
+  actual_value <- window(high.ts, start = ts_forecast_time, end = ts_forecast_time)
+  actuals[i] <- as.numeric(actual_value)
+}
+
+naive.res <- data.frame(date = forecast_dates,
+                      forecast = forecasts,
+                      actual = actuals)
+
+accuracy(naive.res$forecast, naive.res$actual)
+
+```
+
