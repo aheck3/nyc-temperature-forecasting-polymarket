@@ -12,6 +12,11 @@ This project explores the relationship between weather-based prediction markets 
 Professor: Dr. Sriram Somanchi  
 Date: February 2025  
 
+## Report
+
+📄 [Click here to view the full report (PDF)](forecasting-polymarket-temp-report.pdf)
+
+
 ## Objective
 
 The primary objective was to determine whether traders in Polymarket’s weather-based prediction markets are accurately pricing contracts based on real temperature probabilities — or whether opportunities exist for informed traders to profit from mispricings.
@@ -75,10 +80,6 @@ _Assumes $100 simulated bet placed per model prediction, purchased at best avail
 ## Conclusion
 
 This project demonstrates that even relatively simple models can provide value in forecasting and market prediction. By combining time series forecasting with economic insight, informed participants may be able to spot inefficiencies in emerging blockchain-based markets like Polymarket.
-
-## Report
-
-📄 [Click here to view the full report (PDF)](forecasting-polymarket-temp-report.pdf)
 
 ## Acknowledgments
 
